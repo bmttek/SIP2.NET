@@ -41,7 +41,14 @@ namespace SIP2
         public string Title { get; set; }
         public string ItemBarcode { get; set; }
         public string PatronId { get; set; }
+        public string PatronIdHold { get; set; }
+        public string HoldPickupLocation { get; set; }
         public string InstitutionId { get; set; }
+        public string CurrentLocation { get; set; }
+        public string Owner { get; set; }
+        public string PernamentLocation { get; set; }
+        public string ItemProperties { get; set; }
+        public string MediaType { get; set; }
         public string Message { get; set; }
         public bool SuccessfulTransaction { get; set; }
         public bool SuccessfulRenewal { get; set; }
@@ -81,11 +88,32 @@ namespace SIP2
                     // Patron id
                     if (element.Substring(0, 2).ToUpper() == "AA") this.PatronId = element.Substring(2);
 
+                    //Patron ID Hold
+                    if (element.Substring(0, 2).ToUpper() == "CY") this.PatronIdHold = element.Substring(2);
+
+                    //Hold Pickup Location
+                    if (element.Substring(0, 2).ToUpper() == "CT") this.HoldPickupLocation = element.Substring(2);
+
                     // Institution id
                     if (element.Substring(0, 2).ToUpper() == "AO") this.InstitutionId = element.Substring(2);
 
                     // Screen message
                     if (element.Substring(0, 2).ToUpper() == "AF") this.Message = element.Substring(2);
+                    
+                    // Current Location
+                    if (element.Substring(0, 2).ToUpper() == "AP") this.CurrentLocation = element.Substring(2);
+
+                    // Owner
+                    if (element.Substring(0, 2).ToUpper() == "BG") this.Owner = element.Substring(2);
+
+                    // Pernament Location
+                    if (element.Substring(0, 2).ToUpper() == "AQ") this.PernamentLocation = element.Substring(2);
+
+                    // Item Properties
+                    if (element.Substring(0, 2).ToUpper() == "CH") this.ItemProperties = element.Substring(2);
+
+                    // Media Type
+                    if (element.Substring(0, 2).ToUpper() == "CK") this.MediaType = element.Substring(2);
                 }
             }
         }

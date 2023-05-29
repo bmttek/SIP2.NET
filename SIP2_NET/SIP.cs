@@ -47,7 +47,7 @@ namespace SIP2
        
         private IPAddress ipAddress;
         private IPEndPoint remoteEP;
-        private Socket sender = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        private readonly Socket sender = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         private bool connected = false;
         private bool authorized = false;
         private int incrementer = 0;
@@ -131,7 +131,20 @@ namespace SIP2
             this.extra_number = extra_number;
             this.HasChecksum = false;
         }
-
+        /// <summary>
+        ///     SIP Constructor taking the connection information as string parameters.
+        /// </summary>
+        /// <param name="SipServerParameters">Class with all server settings</param>
+        /// <param name="HasChecksum">has checksum (optional in some implementations)</param>
+        public SipConnection(SipServerParameters sipServerParameters, bool HasChecksum = false)
+        {
+            this.domain = sipServerParameters.ip;
+            this.port = sipServerParameters.port;
+            this.username = sipServerParameters.username;
+            this.password = sipServerParameters.password;
+            this.extra_number = sipServerParameters.extra_number;
+            this.HasChecksum = HasChecksum;
+        }
 
 
         /*********************************************
@@ -141,14 +154,17 @@ namespace SIP2
         /// <summary>
         ///     Starts SIP connection assuming that SIP parameters were defined in the contructor.
         /// </summary>
-        public void Open()
+        public bool Open()
         {
-            ipAddress = IPAddress.Parse(this.domain);
-            remoteEP = new IPEndPoint(ipAddress, Int32.Parse(this.port));
-
+           
             //  Set up socket.
             try
             {
+                if (!IPAddress.TryParse(this.domain, out ipAddress))
+                {
+                    ipAddress = Dns.GetHostAddresses(this.domain)[0];
+                }
+                remoteEP = new IPEndPoint(ipAddress, Int32.Parse(this.port));
                 sender.Connect(remoteEP);
             }
             catch (Exception ex)
@@ -187,6 +203,7 @@ namespace SIP2
                 connected = false;
                 throw new ConnectionFailedException("Unable to connect to the server.  Are your SIP parameters correct?  Is the server available?");
             }
+            return connected;
         }
 
 
@@ -208,8 +225,21 @@ namespace SIP2
             this.password = password;
             this.extra_number = extra_number;
             Open();
+            /// <summary>
+            ///     Starts connection with SIP server.  Parameters are required.  Use this if you do not establish server parameteres in the constructor.
+            /// </summary>
+            /// <param name="SipServerParameters">Class with all server settings</param>
+            }
+        public void Open(SipServerParameters sipServerParameters)
+        {
+            //  Set up instance variables.   
+            this.domain = sipServerParameters.ip;
+            this.port = sipServerParameters.port;
+            this.username = sipServerParameters.username;
+            this.password = sipServerParameters.password;
+            this.extra_number = sipServerParameters.extra_number;
+            Open();
         }
-
 
 
         /// <summary>
@@ -341,8 +371,42 @@ namespace SIP2
             }
 
         }
+        /// <summary>
+        ///     Authorizes patron barcode against the SIP server.
+        /// </summary>
+        /// <param name="barcode">Barcode of the patron.</param>
+        /// <param name="password">Password/Pin of the patron.</param>
+        /// <returns>Return true if authorization is successful.  Returns false if bardcode failed to authorize.</returns>
+        public bool AuthorizeBarcode(string barcode, string pin)
+        {
+            Patron patron = new Patron();
+            string PatronInformationResponse = String.Empty;
+            if (connected)
+            {
+                string date = GetDateString();
+                string sipCommand = string.Format("63001{0}          AO1|AA{1}|AC{2}|AD{3}|BP|BQ", date, barcode, this.password,pin);
+                PatronInformationResponse = sipFactory(sipCommand);
+                patron.PatronParse(PatronInformationResponse);
+                if (patron.Authorized)
+                {
+                    //  All good.
+                    authorized = true;
+                    return authorized;
+                }
+                else
+                {
+                    //  Blocked or excessive fines.  Also could be an invalid barcode.
+                    authorized = false;
+                    return authorized;
+                }
+            }
+            else
+            {
+                throw new NotConnectedException("SIP server connection is not established.  Failed to authorize barcode.");
+            }
 
-         /// <summary>
+        }
+        /// <summary>
         ///     Method to checkout items via SIP2 protocol.  Returns list of Items.  Returns null if patron is not authorized.  
         /// </summary>
         /// <param name="patronBarcode"></param>
@@ -382,7 +446,7 @@ namespace SIP2
         public List<Item> CheckIn(IEnumerable<string> itemBarcodes)
         {
             if (!connected) throw new NotConnectedException("Cannot checkin books.  SIP connection is not established!");
-            List<Item> itemListOut = null;
+            List<Item> itemListOut = new List<Item>();
             string date = GetDateString();
             foreach (string item in itemBarcodes)
             {
@@ -409,7 +473,7 @@ namespace SIP2
             if (!connected) throw new NotConnectedException("Cannot checkin books.  SIP connection is not established!");
             if (authorized)
             {
-                string holdAction = String.Empty;
+                string holdAction;
                 switch (action)
                 {
                     case 1:
@@ -431,7 +495,32 @@ namespace SIP2
             else return null;
         }
 
-
+        /// <summary>
+        ///     Method to appy or remove item holds.  Holds removal does not work if the patron has the same barcode on hold more than once.  
+        /// </summary>
+        /// <param name="barcode">Patron barcode wishing to place the hold.</param>
+        /// <returns>Return instance of the Item class.  Returns null if barcode is not authorized first.</returns>
+        public Item ItemInfo(string barcode)
+        {
+            Item item = new Item();
+            if (connected)
+            {
+                string date = GetDateString();
+                string sipCommand = string.Format("17{0}AO1|AB{1}|AC{2}", date, barcode, this.password);
+                string sipResponse = sipFactory(sipCommand);
+                string test = sipResponse.Remove(2);
+                if (sipResponse.Remove(2) == "96")
+                {
+                    sipResponse = sipFactory(sipCommand);
+                }
+                item.ItemParse(sipResponse);
+            }
+            else
+            {
+                throw new NotConnectedException("Server is currently unavailable.  Please see a librarian!");
+            }
+            return item;
+        }
 
         /// <summary>
         ///     Method to renew a list of books.  DOES NOT WORK EFFECTIVELY!  Due dates cannot be calculated as SIP does not have access to these rules directly.  No idea why this is implemented this way.  Help is appreciated!  Use RenewAll for now.
@@ -565,8 +654,9 @@ namespace SIP2
             if (UseConsoleDebugMode) { Console.WriteLine(sipCommand); }
 
             // Send the data through the socket.
-            int bytesSent = sender.Send(msg);
-            
+            //int bytesSent = sender.Send(msg);
+            sender.Send(msg);
+
             // Receive the response from the remote device.
             StringBuilder outputString = new StringBuilder();
             string bit = String.Empty;
@@ -609,7 +699,8 @@ namespace SIP2
             byte[] msg = Encoding.ASCII.GetBytes(sipCommandWithChecksum + '\r');
 
             // Send the data through the socket.
-            int bytesSent = sender.Send(msg);
+            //int bytesSent = sender.Send(msg);
+            sender.Send(msg);
 
             // Receive the response from the remote device.
             StringBuilder outputString = new StringBuilder();
